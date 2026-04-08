@@ -3,7 +3,7 @@ B-RAG AI — Chat with your Documents
 Developed by Bibek Subedi
 © 2026 All Rights Reserved
 """
-import requests  # already in stdlib via openai, or add to requirements
+import requests 
 import streamlit as st
 import time
 import json
@@ -66,7 +66,7 @@ if "visit_counted" not in st.session_state:
 
 VISITS = st.session_state.get("total_visits", load_visits())
 # ════════════════════════════════════════════════════════════════════════════
-#st.image("assets/cover.jpg", use_container_width=True)
+
 
 st.markdown("""
 <style>
