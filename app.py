@@ -382,7 +382,37 @@ button[kind="secondary"] {
 #  VISIT COUNTER BADGE  (top-right corner)
 # ════════════════════════════════════════════════════════════════════════════
 st.markdown(
-    f'<div class="visit-badge">VISITS &nbsp;{VISITS:,}</div>',
+    f"""
+    <style>
+        /* Define the variables in case they aren't set in your theme */
+        :root {{
+            --navy-card: #0e1117; 
+            --amber: #ffbf00;
+            --font-mono: 'Source Code Pro', monospace;
+        }}
+
+        .visit-badge {{
+            position: fixed;
+            top: 20px; /* Lowered to sit just below the Streamlit top bar */
+            right: 18px;
+            background: var(--navy-card);
+            border: 1px solid var(--amber);
+            color: var(--amber);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 20px;
+            z-index: 999999; /* Increased to ensure it stays on top */
+            letter-spacing: 0.05em;
+            box-shadow: 0px 2px 10px rgba(0,0,0,0.3);
+        }}
+    </style>
+    
+    <div class="visit-badge">
+        VISITS &nbsp;{VISITS:,}
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
