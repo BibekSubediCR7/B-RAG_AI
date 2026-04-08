@@ -1,0 +1,6 @@
+.streamlit/secrets.toml
+visit_counter.json
+__pycache__/
+*.pyc
+.venv
+assets/photo.jpg
