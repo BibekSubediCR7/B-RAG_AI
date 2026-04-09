@@ -69,15 +69,20 @@ def _rpc(fn: str, params: dict = {}) -> dict:
 
 def load_all_stats() -> dict:
     """
-    Fetch all four counters in a single DB call.
-    One request = visits + users + docs + queries at once.
-    Much better than making 4 separate calls.
+    Read all counters directly from the table via REST — no RPC needed.
+    Direct table query is simpler and more reliable than calling get_all_stats RPC.
     """
-    result = _rpc("get_all_stats")
-    if isinstance(result, list) and result:
-        return result[0]
-    # Return zeros if something went wrong
-    return {"visits": 0, "unique_users": 0, "docs_uploaded": 0, "queries_asked": 0}
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/app_stats?id=eq.1&select=visits,docs_uploaded,queries_asked",
+            headers=HEADERS,
+            timeout=8,
+        )
+        if r.ok and r.json():
+            return r.json()[0]
+    except Exception:
+        pass
+    return {"visits": 0, "docs_uploaded": 0, "queries_asked": 0}
 
 
 def increment_stat(col: str) -> int:
@@ -97,11 +102,13 @@ def increment_stat(col: str) -> int:
 if "session_init" not in st.session_state:
     st.session_state["session_init"] = True
     try:
-        st.session_state["total_visits"] = increment_stat("visits")
-        st.session_state["app_stats"]    = load_all_stats()
-        st.session_state["app_stats"]["visits"] = st.session_state["total_visits"]
+        # Increment visits first, then load all stats in one read
+        # This way the displayed numbers are always fresh from DB
+        increment_stat("visits")
+        stats = load_all_stats()
+        st.session_state["total_visits"] = stats.get("visits", 0)
+        st.session_state["app_stats"]    = stats
     except Exception:
-        # Supabase completely unreachable at startup — show zeros, keep app running
         st.session_state["total_visits"] = 0
         st.session_state["app_stats"]    = {
             "visits": 0, "docs_uploaded": 0, "queries_asked": 0
@@ -465,12 +472,14 @@ MAX_HISTORY_TURNS = 6                          # only keep last 6 Q&A pairs in m
 
 
 # The personality and instructions we give GPT at the start of every chat
-SYSTEM_PROMPT = SYSTEM_PROMPT = """You are an expert analyst with full mastery of the provided document. Deliver precise, confident analysis — never describe what the document says, just answer.
 
-Format: Markdown always. Bold key terms. ## Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 3-4 paragraphs max per answer.
+SYSTEM_PROMPT = """You are a strict document analyst. You answer ONLY from the provided document context. No exceptions.
 
-Tone: Domain expert. No disclaimers like "based on the text." If something is outside the document scope, say so briefly."""
+Format: Markdown. Bold key terms. ## Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 2–3 paragraphs max.
 
+Tone: Direct and expert. No disclaimers like "based on the text."
+
+STRICT RULE: If the answer is not explicitly in the document, respond with exactly: This information is not covered in the document. """
 # ════════════════════════════════════════════════════════════════════════════
 #  SESSION STATE — these variables survive across Streamlit reruns
 # ════════════════════════════════════════════════════════════════════════════
