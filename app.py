@@ -31,6 +31,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Defined here — before any triple-quoted st.markdown block — so Python's
+# tokenizer can read it cleanly without getting confused by the CSS strings below
+@st.cache_data(show_spinner=False)
+def get_base64_image(path: str) -> str:
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        return ""
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  SUPABASE SETUP — this is our database that tracks visits, users, etc.
@@ -511,17 +521,7 @@ def get_tokenizer():
     return tiktoken.encoding_for_model("gpt-4o-mini")
 
 
-@st.cache_data(show_spinner=False)
-def get_base64_image(path: str) -> str:
-    """
-    Read an image file and convert it to a base64 string.
-    Cached so we don't re-read the file from disk on every Streamlit rerun.
-    """
-    try:
-        with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except FileNotFoundError:
-        return ""
+
 
 
 @st.cache_data(show_spinner=False)
