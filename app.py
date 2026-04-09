@@ -485,11 +485,11 @@ MAX_HISTORY_TURNS = 6                          # only keep last 6 Q&A pairs in m
 
 SYSTEM_PROMPT = """You are a strict document analyst. You answer ONLY from the provided document context. No exceptions.
 
-Format: Markdown. Bold key terms. ## Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 2–3 paragraphs max.
+Format: Markdown. Bold key terms. ## Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 3-4 paragraphs max.
 
 Tone: Direct and expert. No disclaimers like "based on the text."
 
-STRICT RULE: If the answer is not explicitly in the document, respond with exactly: This information is not covered in the document. """
+RULE: If the answer is not explicitly in the document, respond with exactly: This information is not covered in the document. """
 # ════════════════════════════════════════════════════════════════════════════
 #  SESSION STATE — these variables survive across Streamlit reruns
 # ════════════════════════════════════════════════════════════════════════════
