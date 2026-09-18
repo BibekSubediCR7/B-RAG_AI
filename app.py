@@ -457,9 +457,6 @@ observer.observe(document.body, { childList: true, subtree: true });
 """, unsafe_allow_html=True)
 
 
-
-
-
 gemini_client = OpenAI(
     api_key=st.secrets["GEMINI_API_KEY"],
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -477,7 +474,7 @@ hf_client = InferenceClient(
 EMBED_MODEL  = "sentence-transformers/all-MiniLM-L6-v2"  
 CHAT_MODEL="gemini-3.5-flash-lite"         
 EMBED_DIM    = 384                                         
-MAX_TOKENS        = 800                        # max words GPT can reply with
+MAX_TOKENS        = 800                        
 MAX_CTX_TOKS      = 4000                       # max tokens we send as context per question
 MAX_FILE_MB       = 10                         # reject files bigger than this
 MAX_PAGES         = 300                        # reject PDFs longer than this
@@ -491,7 +488,7 @@ MAX_HISTORY_TURNS = 6                          # only keep last 6 Q&A pairs in m
 
 SYSTEM_PROMPT = """You are a strict document analyst. You answer ONLY from the provided document context. No exceptions.
 
-Format: Markdown. Bold key terms. ## Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 3-4 paragraphs max.
+Format: Markdown. Bold key terms. Headers for sections. Bullet points for lists. Tables for numbers/comparisons. 3-4 paragraphs max.
 
 Tone: Direct and expert. No disclaimers like "based on the text."
 
@@ -525,9 +522,6 @@ def get_tokenizer():
     Without this, tiktoken would reload its vocab file on every single call.
     """
     return tiktoken.encoding_for_model("gpt-4o-mini")
-
-
-
 
 
 @st.cache_data(show_spinner=False)
@@ -760,7 +754,7 @@ with st.sidebar:
     st.markdown('<span class="sidebar-section-label">Model Configuration</span>', unsafe_allow_html=True)
     st.markdown(f"""
     <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); line-height: 2;">
-        Chat &nbsp;&nbsp;&nbsp;&nbsp;: {CHAT_MODEL} (Grok)<br>
+        Chat &nbsp;&nbsp;&nbsp;&nbsp;: {CHAT_MODEL}<br>
         Embed &nbsp;&nbsp;&nbsp;: {EMBED_MODEL} (HF) <br>
         Max Tok : {MAX_TOKENS}<br>
         Ctx Tok &nbsp;: {MAX_CTX_TOKS}<br>
@@ -987,16 +981,12 @@ if st.session_state["vector_store"] is not None:
             st.session_state["chunks"],
         )
 
-        # Trim the chunks to our token budget before sending to GPT
         context = trim_context_to_budget(relevant_chunks)
 
         # Trim chat history so old messages don't silently inflate token count
         st.session_state["chat_history"] = trim_chat_history(st.session_state["chat_history"])
 
-        # ── Build the message list we send to GPT ───────────────────────
-        # We only send: system prompt + the relevant context + the question.
-        # We do NOT send the full chat history to GPT — just the document context.
-        # This keeps every request flat and predictable in token cost.
+       
         messages_payload = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
