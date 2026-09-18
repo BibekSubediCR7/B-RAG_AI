@@ -16,8 +16,8 @@ import streamlit as st
 import tiktoken                             # counts tokens so we don't overspend
 from pypdf import PdfReader                 # reads and extracts text from PDFs
 from docx import Document as DocxDocument   # reads and extracts text from DOCX files
-from openai import OpenAI                   # talks to GPT and embedding models
-import faiss                                # super fast vector search (finds relevant chunks)
+from openai import OpenAI
+from huggingface_hub import InferenceClient
 import numpy as np                          # math/array operations for embeddings
 
 
@@ -459,24 +459,30 @@ observer.observe(document.body, { childList: true, subtree: true });
 
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  OPENAI CLIENT — single instance, used everywhere
-# ════════════════════════════════════════════════════════════════════════════
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+gemini_client = OpenAI(
+    api_key=st.secrets["GEMINI_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+)
+
+hf_client = InferenceClient(
+    provider="hf-inference",
+    api_key=st.secrets["HF_API_KEY"],
+)
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS — tweak these to control cost and quality
 # ════════════════════════════════════════════════════════════════════════════
-EMBED_MODEL       = "text-embedding-3-small"  # cheapest OpenAI embedding model
-CHAT_MODEL        = "gpt-4o-mini"             # cheapest good chat model
+EMBED_MODEL  = "sentence-transformers/all-MiniLM-L6-v2"  
+CHAT_MODEL="gemini-3.5-flash-lite"         
+EMBED_DIM    = 384                                         
 MAX_TOKENS        = 800                        # max words GPT can reply with
 MAX_CTX_TOKS      = 4000                       # max tokens we send as context per question
 MAX_FILE_MB       = 10                         # reject files bigger than this
 MAX_PAGES         = 300                        # reject PDFs longer than this
 CHUNK_SIZE        = 400                        # how many words per chunk (was 500 — reduced to save tokens)
 CHUNK_OVERLAP     = 40                         # how many words overlap between chunks
-EMBED_DIM         = 1536                       # dimension of text-embedding-3-small vectors
 TOP_K_CHUNKS      = 3                          # how many chunks to retrieve per question (was 5 — fewer = cheaper)
 MAX_HISTORY_TURNS = 6                          # only keep last 6 Q&A pairs in memory — stops history growing forever
 
@@ -526,21 +532,9 @@ def get_tokenizer():
 
 @st.cache_data(show_spinner=False)
 def get_embeddings_cached(cache_key: str, texts: tuple[str, ...]) -> np.ndarray:
-    """
-    THE MOST IMPORTANT CACHING FUNCTION.
+    vectors = [hf_client.feature_extraction(t, model=EMBED_MODEL) for t in texts]
+    return np.array(vectors, dtype=np.float32)
 
-    Converts text into embedding vectors using OpenAI's API.
-    The cache_key is an MD5 hash — if we've seen these exact texts before,
-    Streamlit returns the stored result immediately with ZERO API calls.
-
-    This is what was burning your 673k embedding tokens — the same document
-    was being re-embedded every time because there was no cache.
-
-    texts must be a tuple (not a list) because Streamlit can only cache
-    hashable types, and lists are not hashable.
-    """
-    response = client.embeddings.create(model=EMBED_MODEL, input=list(texts))
-    return np.array([item.embedding for item in response.data], dtype=np.float32)
 
 
 def get_embeddings(texts: list[str], cache_key: str | None = None) -> np.ndarray:
@@ -558,17 +552,15 @@ def get_embeddings(texts: list[str], cache_key: str | None = None) -> np.ndarray
 @st.cache_data(show_spinner=False)
 def build_faiss_index_cached(doc_hash: str, chunks: tuple[str, ...]):
     """
-    Build the FAISS search index for a document.
+    Build a normalized embedding matrix for the document.
     Keyed by the file's MD5 hash — so if someone uploads the SAME file
-    in a brand new session, we return the cached index with zero embedding calls.
-
-    This is the single biggest fix for your token bill.
+    in a brand new session, we return the cached matrix with zero embedding calls.
+    No native library needed — plain NumPy cosine similarity, fine at this scale.
     """
     embeddings = get_embeddings(list(chunks), cache_key=doc_hash)
-    faiss.normalize_L2(embeddings)                    # normalize for cosine similarity
-    index = faiss.IndexFlatIP(EMBED_DIM)              # Inner Product = cosine after normalization
-    index.add(embeddings)
-    return index, embeddings
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    normalized = embeddings / np.clip(norms, 1e-10, None)
+    return normalized, normalized
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -612,13 +604,15 @@ def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
 def retrieve(query: str, index, chunks: list[str], k: int = TOP_K_CHUNKS) -> list[str]:
     """
     Find the k chunks most relevant to the user's question.
-    We embed the question, then ask FAISS which stored embeddings are closest.
+    We embed the question, normalize it, then compute cosine similarity
+    against every stored chunk embedding with plain NumPy — no native library needed.
     Query embedding is auto-cached — same question twice = no extra API call.
     """
-    q_emb = get_embeddings([query])          # cached by query text hash
-    faiss.normalize_L2(q_emb)
-    _, indices = index.search(q_emb, k)
-    return [chunks[i] for i in indices[0] if i < len(chunks)]
+    q_emb = get_embeddings([query])[0]          # cached by query text hash
+    q_norm = q_emb / np.clip(np.linalg.norm(q_emb), 1e-10, None)
+    scores = index @ q_norm                     # cosine similarity (both sides normalized)
+    top_k_idx = np.argsort(-scores)[:k]
+    return [chunks[i] for i in top_k_idx if i < len(chunks)]
 
 
 def trim_context_to_budget(chunks: list[str], budget: int = MAX_CTX_TOKS) -> str:
@@ -766,8 +760,8 @@ with st.sidebar:
     st.markdown('<span class="sidebar-section-label">Model Configuration</span>', unsafe_allow_html=True)
     st.markdown(f"""
     <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); line-height: 2;">
-        Chat &nbsp;&nbsp;&nbsp;&nbsp;: {CHAT_MODEL}<br>
-        Embed &nbsp;&nbsp;&nbsp;: {EMBED_MODEL}<br>
+        Chat &nbsp;&nbsp;&nbsp;&nbsp;: {CHAT_MODEL} (Grok)<br>
+        Embed &nbsp;&nbsp;&nbsp;: {EMBED_MODEL} (HF) <br>
         Max Tok : {MAX_TOKENS}<br>
         Ctx Tok &nbsp;: {MAX_CTX_TOKS}<br>
         Top-K &nbsp;&nbsp;&nbsp;: {TOP_K_CHUNKS}
@@ -1024,13 +1018,13 @@ if st.session_state["vector_store"] is not None:
             response_placeholder = st.empty()
             full_response = ""
 
-            stream = client.chat.completions.create(
-                model       = CHAT_MODEL,
-                messages    = messages_payload,
-                max_tokens  = MAX_TOKENS,
-                temperature = 0.3,      # low temperature = more focused, less random
-                stream      = True,
-            )
+            stream = gemini_client.chat.completions.create(
+            model       = CHAT_MODEL,
+            messages    = messages_payload,
+            max_tokens  = MAX_TOKENS,
+            temperature = 0.3,      # low temperature = more focused, less random
+            stream      = True,
+)
 
             # Each chunk arrives one at a time — we concatenate and re-render
             for chunk in stream:

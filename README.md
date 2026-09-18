@@ -6,21 +6,23 @@
 
 ## Overview
 
-B-RAG AI is a production-grade document intelligence application that allows users to upload a PDF and conduct a natural language conversation with its contents. The system combines OpenAI's embedding and language models with a FAISS vector store to deliver fast, accurate, and cost-controlled retrieval-augmented generation — all within a single-page Streamlit interface.
+B-RAG AI is a production-grade document intelligence application that allows users to upload a PDF or DOCX and conduct a natural language conversation with its contents. The system combines Hugging Face embedding models, Google Gemini's language model, and a lightweight NumPy vector store to deliver fast, accurate, and cost-controlled retrieval-augmented generation — all within a single-page Streamlit interface.
 
 The application is designed to look and behave like a professional product, not a prototype.
+
+> **v2.0 migration note:** The original build ran on OpenAI's embedding and chat APIs with a FAISS vector store. Following the OpenAI API credit expiring, the stack was migrated to Hugging Face (embeddings), Google Gemini (chat), and a pure NumPy cosine-similarity search in place of FAISS — removing a native-binary dependency entirely while keeping the same retrieval behavior.
 
 ---
 
 ## Live Features
 
-- PDF upload with a three-rule validation gate (size, page count, text density)
-- Automatic text chunking and FAISS vector indexing on first upload
+- PDF and DOCX upload with a three-rule validation gate (size, page count, text density)
+- Automatic text chunking and vector indexing on first upload
 - Semantic retrieval of the most relevant document chunks per query
 - Token-aware context assembly capped at 4,000 tokens per request
-- Streaming chat responses via `gpt-4o-mini`
+- Streaming chat responses via Gemini's OpenAI-compatible endpoint
 - Persistent visit counter backed by Supabase
-- Session-cached vector store to eliminate redundant embedding calls
+- Session-cached embeddings to eliminate redundant API calls
 - Fully branded sidebar with developer profile and social links
 - Custom dark-theme UI with amber accent palette
 
@@ -31,13 +33,16 @@ The application is designed to look and behave like a professional product, not 
 | Layer | Technology |
 |---|---|
 | Frontend | Streamlit |
-| Language Model | OpenAI `gpt-4o-mini` |
-| Embeddings | OpenAI `text-embedding-3-small` |
-| Vector Store | FAISS (CPU) |
+| Language Model | Google `gemini-3.5-flash-lite` (via OpenAI-compatible endpoint) |
+| Embeddings | Hugging Face `sentence-transformers/all-MiniLM-L6-v2` |
+| Vector Store | NumPy (cosine similarity) |
 | PDF Parsing | pypdf |
+| DOCX Parsing | python-docx |
 | Token Counting | tiktoken |
 | Visit Counter | Supabase (PostgreSQL) |
 | Hosting | Streamlit Community Cloud |
+
+
 
 ---
 
@@ -82,15 +87,26 @@ source .venv/bin/activate     # macOS / Linux
 pip install -r requirements.txt
 ```
 
+If `pip` or `streamlit` is blocked by an Application Control policy (common on managed Windows machines), run them as Python modules instead:
+
+```bash
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
 **Step 4 — Configure secrets**
 
 Create `.streamlit/secrets.toml` and add the following:
 
 ```toml
-OPENAI_API_KEY = "sk-..."
+GEMINI_API_KEY = "..."
+HF_API_KEY     = "hf_..."
 SUPABASE_URL   = "https://your-project-id.supabase.co"
 SUPABASE_KEY   = "your-anon-public-key"
 ```
+
+- Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com) — no credit card required for the free tier.
+- Get a free Hugging Face token (Read scope is enough) at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 
 **Step 5 — Run the application**
 
@@ -133,7 +149,7 @@ $$ LANGUAGE SQL;
 1. Push the repository to GitHub. The `.gitignore` already excludes `secrets.toml` and `visit_counter.json`.
 2. Go to [share.streamlit.io](https://share.streamlit.io) and select **New app**.
 3. Choose your repository and set the main file path to `app.py`.
-4. Open **Settings → Secrets** and paste all three key-value pairs from your local `secrets.toml`.
+4. Open **Settings → Secrets** and paste all four key-value pairs from your local `secrets.toml`.
 5. Click **Deploy**.
 
 The app will be live within 60 seconds at a `*.streamlit.app` URL.
@@ -144,13 +160,13 @@ The app will be live within 60 seconds at a `*.streamlit.app` URL.
 
 Every request is subject to three cost guardrails.
 
-**Model selection** — `gpt-4o-mini` costs approximately 40x less than `gpt-4o` with comparable performance on document Q&A tasks. `text-embedding-3-small` is the lowest-cost OpenAI embedding model.
+**Model selection** — Gemini's free tier and Hugging Face's free inference tier cover typical document-chat traffic at no cost. `sentence-transformers/all-MiniLM-L6-v2` is a lightweight, low-latency embedding model well suited to this workload.
 
 **Token budget** — Retrieved chunks are assembled and trimmed by `tiktoken` before being sent to the model. The total context per request never exceeds 4,000 tokens.
 
-**Response cap** — `max_tokens` is hard-set to 800, preventing runaway generation from draining API credits.
+**Response cap** — `max_tokens` is hard-set to 800, preventing runaway generation from draining API quota.
 
-**Session caching** — The FAISS index is stored in `st.session_state` after the first embedding run. Subsequent questions against the same document make zero embedding API calls.
+**Session caching** — Embeddings are stored in `st.session_state` after the first run, keyed by document hash. Subsequent questions against the same document make zero embedding API calls, and re-uploading an already-seen file makes zero new calls at all.
 
 ---
 
