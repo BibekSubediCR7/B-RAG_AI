@@ -7,6 +7,7 @@ Developed by Bibek Subedi
 # ── Standard library stuff we need ──────────────────────────────────────────
 import hashlib      # used to create a unique fingerprint of each uploaded file
 import base64       # used to embed images directly into HTML
+import time   
 import requests     # used to talk to Supabase (our database)
 
 # ── Streamlit is the whole UI framework ─────────────────────────────────────
@@ -17,7 +18,6 @@ import tiktoken                             # counts tokens so we don't overspen
 from pypdf import PdfReader                 # reads and extracts text from PDFs
 from docx import Document as DocxDocument   # reads and extracts text from DOCX files
 from openai import OpenAI
-from huggingface_hub import InferenceClient
 import numpy as np                          # math/array operations for embeddings
 
 
@@ -462,18 +462,15 @@ gemini_client = OpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
-hf_client = InferenceClient(
-    provider="hf-inference",
-    api_key=st.secrets["HF_API_KEY"],
-)
+
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS — tweak these to control cost and quality
 # ════════════════════════════════════════════════════════════════════════════
-EMBED_MODEL  = "sentence-transformers/all-MiniLM-L6-v2"  
+EMBED_MODEL  = "gemini-embedding-001"
 CHAT_MODEL="gemini-3.5-flash-lite"         
-EMBED_DIM    = 384                                         
+EMBED_DIM    = 3072                                         
 MAX_TOKENS        = 800                        
 MAX_CTX_TOKS      = 4000                       # max tokens we send as context per question
 MAX_FILE_MB       = 10                         # reject files bigger than this
@@ -523,10 +520,21 @@ def get_tokenizer():
     """
     return tiktoken.encoding_for_model("gpt-4o-mini")
 
-
 @st.cache_data(show_spinner=False)
 def get_embeddings_cached(cache_key: str, texts: tuple[str, ...]) -> np.ndarray:
-    vectors = [hf_client.feature_extraction(t, model=EMBED_MODEL) for t in texts]
+    vectors = []
+    batch_size = 50
+    for i in range(0, len(texts), batch_size):
+        batch = list(texts[i : i + batch_size])
+        for attempt in range(4):          # retry if free-tier rate limit hits
+            try:
+                resp = gemini_client.embeddings.create(model=EMBED_MODEL, input=batch)
+                vectors.extend(d.embedding for d in resp.data)
+                break
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(2 * (2 ** attempt))
     return np.array(vectors, dtype=np.float32)
 
 
@@ -755,7 +763,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); line-height: 2;">
         Chat &nbsp;&nbsp;&nbsp;&nbsp;: {CHAT_MODEL}<br>
-        Embed &nbsp;&nbsp;&nbsp;: {EMBED_MODEL} (HF) <br>
+        Embed &nbsp;&nbsp;&nbsp;: {EMBED_MODEL} (Gemini) <br>
         Max Tok : {MAX_TOKENS}<br>
         Ctx Tok &nbsp;: {MAX_CTX_TOKS}<br>
         Top-K &nbsp;&nbsp;&nbsp;: {TOP_K_CHUNKS}
