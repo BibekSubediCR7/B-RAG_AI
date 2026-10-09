@@ -34,7 +34,7 @@ The application is designed to look and behave like a professional product, not 
 |---|---|
 | Frontend | Streamlit |
 | Language Model | Google `gemini-3.5-flash-lite` (via OpenAI-compatible endpoint) |
-| Embeddings | Hugging Face `sentence-transformers/all-MiniLM-L6-v2` |
+| Embeddings | Gemini 'gemini-embedding-001` |
 | Vector Store | NumPy (cosine similarity) |
 | PDF Parsing | pypdf |
 | DOCX Parsing | python-docx |
@@ -100,14 +100,11 @@ Create `.streamlit/secrets.toml` and add the following:
 
 ```toml
 GEMINI_API_KEY = "..."
-HF_API_KEY     = "hf_..."
 SUPABASE_URL   = "https://your-project-id.supabase.co"
 SUPABASE_KEY   = "your-anon-public-key"
 ```
 
 - Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com) — no credit card required for the free tier.
-- Get a free Hugging Face token (Read scope is enough) at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-
 **Step 5 — Run the application**
 
 ```bash
